@@ -2,6 +2,7 @@
   lib,
   bashInteractive,
   buildNpmPackage,
+  callPackage,
   fetchurl,
   jq,
   makeWrapper,
@@ -12,6 +13,7 @@
 
 let
   versionData = lib.importJSON ./hashes.json;
+  nodeRuntime = callPackage ./node.nix { };
   inherit (versionData) version;
 
   # The npm tarball ships no lockfile. Ours is generated without
@@ -48,11 +50,12 @@ buildNpmPackage {
       --replace-fail '"/bin/bash"' '"${lib.getExe bashInteractive}"'
 
     rm $out/bin/dsh
-    makeWrapper ${lib.getExe nodejs} $out/bin/dsh \
+    makeWrapper ${lib.getExe nodeRuntime} $out/bin/dsh \
       --argv0 dsh \
-      --add-flags "--expose-internals" \
       --add-flags "$out/lib/node_modules/@deepseek-ai/dsh/lib/bin.js"
   '';
+
+  passthru = { inherit nodeRuntime; };
 
   doInstallCheck = true;
   nativeInstallCheckInputs = [ versionCheckHook ];

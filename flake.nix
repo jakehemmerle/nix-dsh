@@ -23,6 +23,24 @@
 
       checks = forAllSystems (pkgs: {
         dsh = self.packages.${pkgs.stdenv.hostPlatform.system}.dsh;
+        web-boot =
+          pkgs.runCommand "dsh-web-boot" { nativeBuildInputs = [ self.packages.${pkgs.stdenv.hostPlatform.system}.dsh ]; }
+            ''
+              export HOME=$(mktemp -d) DSH_HOME=$(mktemp -d)
+              dsh web --no-open --port 0 > boot.log 2>&1 &
+              pid=$!
+              for _ in $(seq 120); do
+                if grep -q 'http://127.0.0.1:' boot.log; then
+                  kill $pid
+                  touch $out
+                  exit 0
+                fi
+                kill -0 $pid 2>/dev/null || break
+                sleep 0.5
+              done
+              cat boot.log
+              exit 1
+            '';
         updater =
           pkgs.runCommand "dsh-updater-tests" { nativeBuildInputs = [ pkgs.python3 ]; }
             ''
