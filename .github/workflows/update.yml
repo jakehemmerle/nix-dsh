@@ -1,0 +1,91 @@
+name: update
+
+on:
+  schedule:
+    - cron: '0 */12 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.diff.outputs.changed }}
+      old: ${{ steps.diff.outputs.old }}
+      new: ${{ steps.diff.outputs.new }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - run: nix develop -c python3 update.py
+      - id: diff
+        run: |
+          echo "old=$(git show HEAD:hashes.json | jq -r .version)" >> "$GITHUB_OUTPUT"
+          echo "new=$(jq -r .version hashes.json)" >> "$GITHUB_OUTPUT"
+          if git diff --quiet; then echo "changed=false" >> "$GITHUB_OUTPUT"; else echo "changed=true" >> "$GITHUB_OUTPUT"; fi
+      - if: steps.diff.outputs.changed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: refreshed
+          path: |
+            hashes.json
+            package-lock.json
+
+  build:
+    needs: refresh
+    if: needs.refresh.outputs.changed == 'true'
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with:
+          name: refreshed
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - run: nix flake check -L
+      - run: nix run . -- --version
+
+  publish:
+    needs: [refresh, build]
+    if: needs.refresh.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with:
+          name: refreshed
+      - run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -am 'dsh: ${{ needs.refresh.outputs.old }} -> ${{ needs.refresh.outputs.new }}'
+          git push origin HEAD:main
+      - name: Notify nix-config
+        env:
+          GH_TOKEN: ${{ secrets.NIX_CONFIG_DISPATCH_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning::NIX_CONFIG_DISPATCH_TOKEN is not set; nix-config picks this up on its 12-hour schedule"
+            exit 0
+          fi
+          gh api repos/jakehemmerle/nix-config/dispatches \
+            -f event_type=dsh-updated \
+            -f "client_payload[version]=${{ needs.refresh.outputs.new }}"
+
+  freshness:
+    needs: [refresh, build, publish]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+      - run: python3 update.py --check-freshness
