@@ -8,6 +8,18 @@ nix run github:jakehemmerle/nix-dsh -- --version
 
 As a flake input, use `packages.<system>.dsh` or `overlays.default`.
 
+## dsh-TUI
+
+`packages.<system>.dsh-tui` is [dsh-TUI](https://github.com/ccch1mneyyy/dsh-TUI) (currently 0.15.0) from npm, with only nix-dsh's own compatibility fix (`dsh-tui/preset-schedule-deny.patch`, dsh-TUI issue #1450). It has no launcher: mount `lib/node_modules/@deepseek-harness-tui/dsh-tui` into a dsh profile and run `dsh --profile <name>`. dsh-TUI declares DSH peers only up to its validated line, so the profile needs a `compatibility.json` exemption for the exact pair.
+
+Plugin repos and nix-config add their own patches with
+
+```nix
+dsh-tui.override { plugins = [ (import "${plugin}/nix/tui-patch.nix" { }) ]; }
+```
+
+where each element is `{ name; patches ? [ ]; postPatch ? ""; installCheck ? ""; }`. Patches apply in list order after nix-dsh's own; each `installCheck` runs against the installed package with `DSH_TUI_TYPES` set and an empty `HOME`. dsh-TUI is bumped by hand: change `version` and `hash` in `dsh-tui.nix`, regenerate `dsh-tui/package-lock.json` (command in the file), recompute `unlistedPeers`, then fix `npmDepsHash`.
+
 ## Updates
 
 `.github/workflows/update.yml` runs every 12 hours. It packages npm's `latest` dist-tag only when it is newer by standard SemVer precedence and ignores `alpha` and `next`. A manually selected newer prerelease is never downgraded to an older `latest`. A new version reaches `main` only after `nix flake check` passes on Linux and macOS.

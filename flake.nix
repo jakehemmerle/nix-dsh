@@ -16,6 +16,9 @@
     {
       packages = forAllSystems (pkgs: rec {
         dsh = pkgs.callPackage ./package.nix { };
+        # dsh-TUI with only nix-dsh's own compatibility fixes. Plugin repos and
+        # nix-config add their contributions with `dsh-tui.override { plugins = [ ... ]; }`.
+        dsh-tui = pkgs.callPackage ./dsh-tui.nix { };
         default = dsh;
       });
 
@@ -23,6 +26,7 @@
 
       checks = forAllSystems (pkgs: {
         dsh = self.packages.${pkgs.stdenv.hostPlatform.system}.dsh;
+        dsh-tui = self.packages.${pkgs.stdenv.hostPlatform.system}.dsh-tui;
         web-boot =
           pkgs.runCommand "dsh-web-boot" { nativeBuildInputs = [ self.packages.${pkgs.stdenv.hostPlatform.system}.dsh ]; }
             ''
